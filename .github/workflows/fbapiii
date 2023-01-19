@@ -1,0 +1,104 @@
+import requests
+import pandas as pd
+#from google.colab import files
+
+account_ids = ["act_3157742114453045", "act_486584486068112", "act_559158568975671"]
+breakdown_values = ["title_asset", "body_asset", "call_to_action_asset"]
+
+dfs = []
+
+# Loop through each account id and breakdown value
+for account_id in account_ids:
+    for breakdown in breakdown_values:
+        url = f"https://graph.facebook.com/v15.0/{account_id}/insights"
+        params = {
+            "level": "ad",
+            "limit": 999,
+            "date_preset": "maximum",
+            "breakdowns": breakdown,
+            "fields": "ad_id,ad_name",
+            "access_token": "EAAHbD263AmYBAF0Oew2PhDUynWh76vLZCSMEvZAWZCPv5ZBJcxi1YZBG0tFXZBkYttLtwhfzyit4T1qv6RnK9EHYwX3bFFejK7MhEZA0rCATFR1vi3YveursnXE8eP9zEs5qOCisSS44lOFOWg34BU4IwWHVIlCB616PgjZApM4AvS5qgtbIroC6"
+        }
+
+        response = requests.get(url, params=params)
+        data = response.json()
+
+        # Create dataframe from API response
+        df = pd.DataFrame(data["data"])
+        
+        # Append dataframe to dfs list
+        dfs.append(df)
+
+# concatenate all dataframes into one
+final_df = pd.concat(dfs)
+
+# Melt the dataframe to reshape it
+final_df = pd.melt(final_df, id_vars=['ad_id', 'ad_name'], value_vars=['title_asset', 'body_asset', 'call_to_action_asset'], var_name='type', value_name='value')
+
+# Extract the ATID from the ad_name column and drop Ad Name column 
+final_df["atid"] = final_df["ad_name"].str.split("|").str[0]
+final_df.drop(columns=['ad_name'], inplace=True)
+
+# Convert value to str and extract the text value
+final_df['value'] = final_df['value'].astype(str)
+final_df["value"] = final_df["value"].str.split("'").str[3]
+
+#for text pre-processing
+import re, string
+import nltk
+from nltk.tokenize import word_tokenize
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+from nltk.stem import SnowballStemmer
+from nltk.corpus import wordnet
+from nltk.stem import WordNetLemmatizer
+nltk.download('punkt')
+nltk.download('averaged_perceptron_tagger')
+nltk.download('stopwords')
+nltk.download('wordnet')
+nltk.download('omw-1.4')
+
+#convert to lowercase, strip and remove punc
+def preprocess(text):
+    text = text.lower() 
+    text=text.strip()  
+    text=re.compile('<.*?>').sub('', text) 
+    text = re.compile('[%s]' % re.escape(string.punctuation)).sub(' ', text)  
+    text = re.sub('\s+', ' ', text)  
+    text = re.sub(r'\[[0-9]*\]',' ',text) 
+    text=re.sub(r'[^\w\s]', '', str(text).lower().strip())
+    text = re.sub(r'\d',' ',text) 
+    text = re.sub(r'\s+',' ',text) 
+    return text
+# STOPWORD REMOVAL
+def stopword(string):
+    a= [i for i in string.split() if i not in stopwords.words('english')]
+    return ' '.join(a)
+#LEMMATIZATION
+# Initialize the lemmatizer
+wl = WordNetLemmatizer()
+ 
+# This is a helper function to map NTLK position tags
+def get_wordnet_pos(tag):
+    if tag.startswith('J'):
+        return wordnet.ADJ
+    elif tag.startswith('V'):
+        return wordnet.VERB
+    elif tag.startswith('N'):
+        return wordnet.NOUN
+    elif tag.startswith('R'):
+        return wordnet.ADV
+    else:
+        return wordnet.NOUN
+# Tokenize the sentence
+def lemmatizer(string):
+    word_pos_tags = nltk.pos_tag(word_tokenize(string)) # Get position tags
+    a=[wl.lemmatize(tag[0], get_wordnet_pos(tag[1])) for idx, tag in enumerate(word_pos_tags)] # Map the position tag and lemmatize the word/token
+    return " ".join(a)
+
+def finalpreprocess(string):
+    return lemmatizer(stopword(preprocess(string)))
+
+final_df['value'] = final_df['value'].astype(str).apply(lambda x: finalpreprocess(x))
+
+print(final_df)
